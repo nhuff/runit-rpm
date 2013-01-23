@@ -68,6 +68,9 @@ for i in man/*8 ; do
 done
 %{__install} -d -m 0755 %{buildroot}/etc/service
 %{__install} -D -m 0750 etc/2 %{buildroot}%{_sbindir}/runsvdir-start
+mkdir -p %{buildroot}/usr/bin
+ln -sf %{_sbindir}/sv %{buildroot}/usr/bin/sv
+%{__install} -d -m 0755 %{buildroot}/etc/sv
 
 %clean
 %{__rm} -rf %{buildroot}
@@ -136,9 +139,11 @@ fi
 %{_sbindir}/utmpset
 %{_sbindir}/runsvdir-start
 %{_mandir}/man8/*.8*
-%doc doc/* etc/
+/usr/bin/sv
+%doc doc/*
 %doc package/CHANGES package/COPYING package/README package/THANKS package/TODO
 %dir /etc/service
+%dir /etc/sv
 
 %changelog
 * Fri Jan 20 2012 Joe Miller <joeym@joeym.net> 2.1.1-6
