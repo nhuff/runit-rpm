@@ -1,5 +1,5 @@
 #
-# spec file for package runit (Version 2.1.1)
+# spec file for package runit (Version 2.1.2)
 #
 # Copyright (c) 2010 Ian Meyer <ianmmeyer@gmail.com>
 
@@ -7,8 +7,8 @@
 ## --with dietlibc ...  statically links against dietlibc
 
 Name:           runit
-Version:        2.1.1
-Release:        6%{?_with_dietlibc:diet}%{?dist}
+Version:        2.1.2
+Release:        1%{?_with_dietlibc:diet}%{?dist}
 
 Group:          System/Base
 License:        BSD
@@ -19,16 +19,20 @@ License:        BSD
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 
 Url:            http://smarden.org/runit/
-Source:         http://smarden.org/runit/runit-%{version}.tar.gz
-Patch:          runit-2.1.1-etc-service.patch
-Patch1:         runit-2.1.1-runsvdir-path-cleanup.patch
-Patch2:         runit-2.1.1-term-hup-option.patch
+Source0:        http://smarden.org/runit/runit-%{version}.tar.gz
+Source1:        runsvdir-start.service
+Patch:          runit-2.1.2-etc-service.patch
+Patch1:         runit-2.1.2-runsvdir-path-cleanup.patch
+Patch2:         runit-2.1.2-term-hup-option.patch
 
 Obsoletes: runit <= %{version}-%{release}
 Provides: runit = %{version}-%{release}
 
 BuildRequires: make gcc
-%{?el6:BuildRequires:        glibc-static}
+%if 0%{?rhel} >= 6
+BuildRequires:  glibc-static
+%endif
+
 %{?_with_dietlibc:BuildRequires:        dietlibc}
 
 Summary:        A UNIX init scheme with service supervision
@@ -60,6 +64,9 @@ popd
 sh package/compile
 
 %install
+EXTRA_FILES=$RPM_BUILD_ROOT/extra_files
+touch %{EXTRA_FILES}
+
 for i in $(< package/commands) ; do
     %{__install} -D -m 0755 command/$i %{buildroot}%{_sbindir}/$i
 done
@@ -72,15 +79,22 @@ mkdir -p %{buildroot}/usr/bin
 ln -sf %{_sbindir}/sv %{buildroot}/usr/bin/sv
 %{__install} -d -m 0755 %{buildroot}/etc/sv
 
+# For systemd only
+%if 0%{?rhel} >= 7
+%{__install} -D -p -m 0644 $RPM_SOURCE_DIR/runsvdir-start.service \
+                       $RPM_BUILD_ROOT%{_unitdir}/runsvdir-start.service
+echo %{_unitdir}/runsvdir-start.service > %{EXTRA_FILES}
+%endif
+
 %clean
 %{__rm} -rf %{buildroot}
 
 %post
 if [ $1 = 1 ] ; then
-  rpm --queryformat='%%{name}' -qf /sbin/init | grep -q upstart
-  if [ $? -eq 0 ]
-  then
-    cat >/etc/init/runsvdir.conf <<\EOT
+  %if 0%{?rhel} >= 6 <= 7
+    rpm --queryformat='%%{name}' -qf /sbin/init | grep -q upstart
+    if [ $? -eq 0 ]; then
+      cat >/etc/init/runsvdir.conf <<\EOT
 # for runit - manage /usr/sbin/runsvdir-start
 start on runlevel [2345]
 stop on runlevel [^2345]
@@ -89,36 +103,44 @@ respawn
 exec /sbin/runsvdir-start
 EOT
     # tell init to start the new service
-    start runsvdir
-  else
+      start runsvdir
+    fi
+  %endif
+
+  %if 0%{?rhel} >= 7
+    systemctl enable runsvdir-start
+    systemctl start runsvdir-start
+  %endif
+
+  %if 0%{?rhel} < 6
     grep -q 'RI:2345:respawn:/sbin/runsvdir-start' /etc/inittab
-    if [ $? -eq 1 ]
-    then
+    if [ $? -eq 1 ]; then
       echo -n "Installing /sbin/runsvdir-start into /etc/inittab.."
       echo "RI:2345:respawn:/sbin/runsvdir-start" >> /etc/inittab
       echo " success."
       # Reload init
       telinit q
     fi
-  fi
+  %endif
 fi
 
 %preun
-if [ $1 = 0 ]
-then
-  if [ -f /etc/init/runsvdir.conf ]
-  then
+if [ $1 = 0 ]; then
+  if [ -f /etc/init/runsvdir.conf ]; then
     stop runsvdir
+  fi
+  if [ -f /usr/lib/systemd/system/runsvdir-start.service ]; then
+    systemctl stop runsvdir-start
+    systemctl disable runsvdir-start
   fi
 fi
 
 %postun
-if [ $1 = 0 ]
-then
-  if [ -f /etc/init/runsvdir.conf ]
-  then
+if [ $1 = 0 ]; then
+  if [ -f /etc/init/runsvdir.conf ]; then
     rm -f /etc/init/runsvdir.conf
-  else
+  fi
+  if grep -q runsvdir-start /etc/inittab 2>/dev/null; then
     echo " #################################################"
     echo " # Remove /sbin/runsvdir-start from /etc/inittab #"
     echo " # if you really want to remove runit            #"
@@ -126,7 +148,7 @@ then
   fi
 fi
 
-%files
+%files -f %{EXTRA_FILES}
 %defattr(-,root,root,-)
 %{_sbindir}/chpst
 %{_sbindir}/runit
@@ -146,6 +168,9 @@ fi
 %dir /etc/sv
 
 %changelog
+* Thu Aug 21 2014 Chris Gaffney <gaffneyc@gmail.com> 2.1.2-1
+- Initial release of 2.1.2
+
 * Fri Jan 20 2012 Joe Miller <joeym@joeym.net> 2.1.1-6
 - modified spec to build on centos-5 (by only requiring glibc-static on centos-6)
 
